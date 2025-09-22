@@ -1,24 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:projectrespawn/MainEvent.dart';
-import "package:get/get.dart";
 
-class Delay extends StatefulWidget {
-  const Delay({super.key});
+class Apploadingpage extends StatefulWidget {
+  const Apploadingpage({super.key});
 
   @override
-  State<Delay> createState() => _DelayState();
+  State<Apploadingpage> createState() => _ApploadingpageState();
 }
 
-class _DelayState extends State<Delay> {
-  @override
-  void initState() {
-    super.initState();
-
-    Future.delayed(const Duration(seconds: 5), () {
-      Get.to(() => MainEvent(), transition: Transition.fadeIn);
-    });
-  }
-
+class _ApploadingpageState extends State<Apploadingpage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -39,6 +28,8 @@ class _DelayState extends State<Delay> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Image.asset("assets/LOGO 1.png", width: 248, height: 248),
+                  const SizedBox(height: 16),
+                  CircularProgressIndicator.adaptive(),
                 ],
               ),
               Positioned(

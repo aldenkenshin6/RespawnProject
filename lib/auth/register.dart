@@ -1,4 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:projectrespawn/auth/auth_service.dart';
 import 'package:projectrespawn/auth/login.dart';
 import 'package:get/get.dart';
 
@@ -12,8 +14,36 @@ class Register extends StatefulWidget {
 class _RegisterState extends State<Register> {
   TextEditingController username = TextEditingController();
   TextEditingController password = TextEditingController();
-  TextEditingController email = TextEditingController();
+  TextEditingController display = TextEditingController();
   TextEditingController confirmPassword = TextEditingController();
+  String errorMessage = "";
+
+  @override
+  void dispose() {
+    username.dispose();
+    password.dispose();
+    display.dispose();
+    confirmPassword.dispose();
+    super.dispose();
+  }
+
+  void register() async {
+    try {
+      await authService.value.createAccount(
+        display: display.text.trim(),
+        username: username.text.trim(),
+        password: password.text.trim(),
+      );
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        errorMessage = e.message ?? "THis is an Error Kupal";
+      });
+    }
+  }
+
+  void popPage() {
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +100,7 @@ class _RegisterState extends State<Register> {
                 ),
                 Positioned(
                   top: 234,
-                  right: 24,
+                  right: -40,
                   child: Image.asset(
                     "assets/image-removebg-preview (1) 1.png",
                     width: 260,
@@ -93,7 +123,12 @@ class _RegisterState extends State<Register> {
                   margin: EdgeInsets.only(top: 340),
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.9),
+                    color: const Color.fromARGB(
+                      255,
+                      255,
+                      255,
+                      255,
+                    ).withOpacity(0.9),
                     borderRadius: BorderRadius.only(
                       topLeft: Radius.circular(50),
                       topRight: Radius.circular(50),
@@ -104,11 +139,11 @@ class _RegisterState extends State<Register> {
                       const SizedBox(height: 10),
                       TextField(
                         style: TextStyle(fontSize: 20, height: 1.5),
-                        controller: email,
+                        controller: display,
                         decoration: InputDecoration(
                           border: UnderlineInputBorder(),
-                          hintText: "Enter Email",
-                          labelText: "Email",
+                          hintText: "Enter Display name",
+                          labelText: "Name",
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -143,13 +178,38 @@ class _RegisterState extends State<Register> {
                           labelText: "Confirm Password",
                         ),
                       ),
-                      const SizedBox(height: 80),
+                      const SizedBox(height: 15),
+                      Text(
+                        errorMessage,
+                        style: TextStyle(
+                          color: const Color.fromARGB(255, 206, 34, 34),
+                        ),
+                      ),
+                      const SizedBox(height: 50),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Color(0xFF830A0A),
                           fixedSize: Size(300, 53),
                         ),
-                        onPressed: () {},
+                        onPressed: () {
+                          if (password.text != confirmPassword.text) {
+                            setState(() {
+                              errorMessage = "Password this not match";
+                            });
+                            return;
+                          } else if (password.text.isEmpty) {
+                            setState(() {
+                              errorMessage = "Password must not empty";
+                            });
+                            return;
+                          } else {
+                            register();
+                            Get.to(
+                              () => Login(),
+                              transition: Transition.leftToRightWithFade,
+                            );
+                          }
+                        },
                         child: Text(
                           "Register",
                           style: TextStyle(color: Colors.white, fontSize: 20),

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "835002877452",
+    "project_id": "respawn-d7753",
+    "storage_bucket": "respawn-d7753.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:835002877452:android:0a3e5eda18cd607b7e1029",
+        "android_client_info": {
+          "package_name": "com.example.projectrespawn"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvqZWth2KL4oSz3HfGrA3iLKV59dcC6h8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

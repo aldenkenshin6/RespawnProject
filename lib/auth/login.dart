@@ -1,6 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:projectrespawn/auth/auth_service.dart';
 import 'package:projectrespawn/auth/register.dart';
+import 'package:projectrespawn/auth_layout.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -12,6 +15,23 @@ class Login extends StatefulWidget {
 class _LoginState extends State<Login> {
   TextEditingController username = TextEditingController();
   TextEditingController password = TextEditingController();
+  String errorMessage = "";
+
+  void checkLogin() async {
+    try {
+      UserCredential userCredential = await authService.value.signIn(
+        username: username.text.trim(),
+        password: password.text.trim(),
+      );
+      if (userCredential.user != null) {
+        Get.offAll(() => AuthLayout(), transition: Transition.fadeIn);
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        errorMessage = e.message ?? "Error";
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +88,7 @@ class _LoginState extends State<Login> {
                 ),
                 Positioned(
                   top: 234,
-                  right: 24,
+                  right: -40,
                   child: Image.asset(
                     "assets/image-removebg-preview (1) 1.png",
                     width: 260,
@@ -91,7 +111,12 @@ class _LoginState extends State<Login> {
                   margin: EdgeInsets.only(top: 340),
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.9),
+                    color: const Color.fromARGB(
+                      255,
+                      255,
+                      255,
+                      255,
+                    ).withOpacity(0.9),
                     borderRadius: BorderRadius.only(
                       topLeft: Radius.circular(50),
                       topRight: Radius.circular(50),
@@ -133,13 +158,22 @@ class _LoginState extends State<Login> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 15),
+                      Text(
+                        errorMessage,
+                        style: TextStyle(
+                          color: const Color.fromARGB(255, 206, 34, 34),
+                        ),
+                      ),
                       const SizedBox(height: 90),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Color(0xFF830A0A),
                           fixedSize: const Size(300, 53),
                         ),
-                        onPressed: () {},
+                        onPressed: () {
+                          checkLogin();
+                        },
                         child: Text(
                           "Login",
                           style: TextStyle(color: Colors.white, fontSize: 20),
