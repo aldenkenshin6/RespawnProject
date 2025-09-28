@@ -1,188 +1,559 @@
+import 'dart:io' show File;
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'package:projectrespawn/auth/auth_service.dart';
+import 'package:video_player/video_player.dart';
 
-class Newsfeeds extends StatefulWidget {
-  const Newsfeeds({super.key});
+class NewsFeeds extends StatefulWidget {
+  const NewsFeeds({super.key});
 
   @override
-  State<Newsfeeds> createState() => _NewsfeedsState();
+  State<NewsFeeds> createState() => _NewsFeedsState();
 }
 
-class _NewsfeedsState extends State<Newsfeeds> {
-  final List<_Post> _posts = <_Post>[
-    _Post(
-      authorName: 'Alex Johnson',
-      authorHandle: '@alexj',
-      timeAgo: '2h',
-      content:
-          'Exploring Flutter layouts today. Loving how flexible widgets are! 🚀',
-      imageAsset: null,
-      likeCount: 12,
-      commentCount: 3,
-      shareCount: 1,
-    ),
-    _Post(
-      authorName: 'Taylor Lee',
-      authorHandle: '@taylor',
-      timeAgo: '5h',
-      content: 'New coffee spot downtown. Highly recommend the cold brew.',
-      imageAsset: 'assets/image 2.png',
-      likeCount: 45,
-      commentCount: 10,
-      shareCount: 4,
-    ),
-    _Post(
-      authorName: 'Morgan Yu',
-      authorHandle: '@morgan',
-      timeAgo: '1d',
-      content:
-          'Weekend hackathon wrap-up: built a small note app with offline sync.',
-      imageAsset: 'assets/Login.png',
-      likeCount: 88,
-      commentCount: 14,
-      shareCount: 6,
-    ),
-  ];
-
-  bool _isRefreshing = false;
-
-  Future<void> _onRefresh() async {
-    setState(() {
-      _isRefreshing = true;
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    setState(() {
-      // Pretend we fetched updates by shuffling a bit
-      _posts.shuffle();
-      _isRefreshing = false;
-    });
+class _NewsFeedsState extends State<NewsFeeds> {
+  final TextEditingController _captionController = TextEditingController();
+  final Map<String, TextEditingController> _commentControllers = {};
+  String? displayname;
+  String? photoUrl;
+  TextEditingController _getCommentController(String postId) {
+    return _commentControllers.putIfAbsent(
+      postId,
+      () => TextEditingController(),
+    );
   }
 
-  void _toggleLike(int index) {
-    setState(() {
-      final _Post post = _posts[index];
-      if (post.isLiked) {
-        post.isLiked = false;
-        if (post.likeCount > 0) post.likeCount -= 1;
+  Future<String?> getUserDisplayname(String uid) async {
+    DocumentSnapshot documentSnapshot = await FirebaseFirestore.instance
+        .collection("users")
+        .doc(uid)
+        .get();
+    if (documentSnapshot.exists) {
+      return documentSnapshot["displayname"];
+    } else {
+      return null;
+    }
+  }
+
+  Future<String?> getUserPhotoUrl(String uid) async {
+    DocumentSnapshot doc = await FirebaseFirestore.instance
+        .collection("users")
+        .doc(uid)
+        .get();
+
+    if (doc.exists) {
+      final data = doc.data() as Map<String, dynamic>?;
+      return data?["photoUrl"];
+    }
+    return null;
+  }
+
+  //Step3: fetch the display in InitState kay ra nakog tarantado ani
+  @override
+  void initState() {
+    super.initState();
+    getname();
+  }
+
+  Future<void> getname() async {
+    final uid = authService.value.currentUser?.uid;
+    if (uid != null) {
+      final name = await getUserDisplayname(uid);
+      final a = await getUserPhotoUrl(uid);
+      setState(() {
+        displayname = name;
+        photoUrl = a;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _captionController.dispose();
+    for (var c in _commentControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  XFile? _pickedFile;
+  Uint8List? _previewBytes;
+  String? _mediaType;
+
+  final String _cloudName = "ditzlkqag";
+  final String _uploadPreset = "flutter_unsigned";
+
+  Future<void> _pickMedia(bool isImage) async {
+    final picker = ImagePicker();
+    final picked = isImage
+        ? await picker.pickImage(source: ImageSource.gallery)
+        : await picker.pickVideo(source: ImageSource.gallery);
+
+    if (picked != null) {
+      if (kIsWeb && isImage) {
+        final bytes = await picked.readAsBytes();
+        setState(() {
+          _pickedFile = picked;
+          _previewBytes = bytes;
+          _mediaType = "image";
+        });
       } else {
-        post.isLiked = true;
-        post.likeCount += 1;
+        setState(() {
+          _pickedFile = picked;
+          _previewBytes = null;
+          _mediaType = isImage ? "image" : "video";
+        });
       }
-    });
+    }
+  }
+
+  Future<String?> _uploadToCloudinary(XFile file, String type) async {
+    final String resourcePath = type == "video" ? "video" : "image";
+    final Uri uri = Uri.parse(
+      "https://api.cloudinary.com/v1_1/$_cloudName/$resourcePath/upload",
+    );
+
+    http.MultipartRequest request = http.MultipartRequest('POST', uri)
+      ..fields['upload_preset'] = _uploadPreset
+      ..fields['folder'] = 'newsfeeds';
+
+    if (kIsWeb) {
+      final bytes = await file.readAsBytes();
+      request.files.add(
+        http.MultipartFile.fromBytes('file', bytes, filename: file.name),
+      );
+    } else {
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+    }
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final Map<String, dynamic> body = jsonDecode(response.body);
+      return body['secure_url'] as String?;
+    }
+    throw Exception('Cloudinary upload failed: ${response.statusCode}');
+  }
+
+  bool _isPosting = false;
+
+  Future<void> _createPost() async {
+    final caption = _captionController.text.trim();
+    if (caption.isEmpty && _pickedFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Write something or add media to post.")),
+      );
+      return;
+    }
+
+    setState(() => _isPosting = true);
+
+    try {
+      final currentUser = authService.value.currentUser;
+      String? mediaUrl;
+      String? mediaType;
+
+      if (_pickedFile != null && _mediaType != null) {
+        mediaUrl = await _uploadToCloudinary(_pickedFile!, _mediaType!);
+        mediaType = _mediaType;
+      }
+
+      await FirebaseFirestore.instance.collection("posts").add({
+        "authorId": currentUser?.uid,
+        "authorName": displayname ?? "Anonymous",
+        "caption": caption,
+        "mediaUrl": mediaUrl,
+        "mediaType": mediaType,
+        "timestamp": FieldValue.serverTimestamp(),
+        "likes": [],
+      });
+
+      _captionController.clear();
+      _pickedFile = null;
+      _previewBytes = null;
+      _mediaType = null;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("✅ Post created successfully!")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      setState(() => _isPosting = false);
+    }
+  }
+
+  Future<void> _toggleLike(DocumentSnapshot doc) async {
+    final currentUser = authService.value.currentUser;
+    if (currentUser == null) return;
+
+    final postRef = doc.reference;
+    final likes = List<String>.from(doc['likes'] ?? []);
+
+    if (likes.contains(currentUser.uid)) {
+      await postRef.update({
+        "likes": FieldValue.arrayRemove([currentUser.uid]),
+      });
+    } else {
+      await postRef.update({
+        "likes": FieldValue.arrayUnion([currentUser.uid]),
+      });
+
+      // 🔔 Create notification for post author
+      if (doc['authorId'] != currentUser.uid) {
+        await FirebaseFirestore.instance
+            .collection("notifications")
+            .doc(doc['authorId'])
+            .collection("items")
+            .add({
+              "type": "like",
+              "fromUserId": currentUser.uid,
+              "fromUserName": currentUser.email ?? "Someone",
+              "postId": doc.id,
+              "postCaption": doc['caption'],
+              "timestamp": FieldValue.serverTimestamp(),
+            });
+      }
+    }
+  }
+
+  Future<void> _addComment(String postId, String text) async {
+    final currentUser = authService.value.currentUser;
+    if (currentUser == null || text.trim().isEmpty) return;
+
+    final postDoc = await FirebaseFirestore.instance
+        .collection("posts")
+        .doc(postId)
+        .get();
+
+    await FirebaseFirestore.instance
+        .collection("posts")
+        .doc(postId)
+        .collection("comments")
+        .add({
+          "authorId": currentUser.uid,
+          "authorName": currentUser.email ?? "Anonymous",
+          "text": text.trim(),
+          "timestamp": FieldValue.serverTimestamp(),
+        });
+
+    // 🔔 Create notification for post author
+    if (postDoc.exists && postDoc['authorId'] != currentUser.uid) {
+      await FirebaseFirestore.instance
+          .collection("notifications")
+          .doc(postDoc['authorId'])
+          .collection("items")
+          .add({
+            "type": "comment",
+            "fromUserId": currentUser.uid,
+            "fromUserName": currentUser.email ?? "Someone",
+            "postId": postDoc.id,
+            "postCaption": postDoc['caption'],
+            "commentText": text.trim(),
+            "timestamp": FieldValue.serverTimestamp(),
+          });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Newsfeeds'), centerTitle: true),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: CustomScrollView(
-          slivers: <Widget>[
-            SliverToBoxAdapter(child: _Composer(onPost: _handleCreatePost)),
-            SliverList(
-              delegate: SliverChildBuilderDelegate((
-                BuildContext context,
-                int index,
-              ) {
-                final _Post post = _posts[index];
-                return _PostCard(
-                  post: post,
-                  onLike: () => _toggleLike(index),
-                  onComment: () {},
-                  onShare: () {},
-                );
-              }, childCount: _posts.length),
+      backgroundColor: Colors.grey[100],
+      body: Column(
+        children: [
+          Image.asset('assets/LOGO 1.png', height: 140, width: 140),
+          // 📝 Post composer
+          Card(
+            margin: const EdgeInsets.all(12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            if (_isRefreshing)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16.0),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _captionController,
+                    maxLines: null,
+                    decoration: InputDecoration(
+                      hintText: "What's on your mind?",
+                      border: InputBorder.none,
+                      hintStyle: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_pickedFile != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: _mediaType == "image"
+                          ? (kIsWeb && _previewBytes != null
+                                ? Image.memory(
+                                    _previewBytes!,
+                                    height: 150,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Image.file(
+                                    File(_pickedFile!.path),
+                                    height: 150,
+                                    fit: BoxFit.cover,
+                                  ))
+                          : const Icon(
+                              Icons.videocam,
+                              size: 80,
+                              color: Colors.blueGrey,
+                            ),
+                    ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => _pickMedia(true),
+                        icon: const Icon(Icons.image, color: Color(0xFF830A0A)),
+                        label: const Text(
+                          "Image",
+                          style: TextStyle(color: Colors.black),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _pickMedia(false),
+                        icon: const Icon(
+                          Icons.videocam,
+                          color: Color(0xFF830A0A),
+                        ),
+                        label: const Text(
+                          "Video",
+                          style: TextStyle(color: Colors.black),
+                        ),
+                      ),
+                      const Spacer(),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color(0xFF830A0A),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _isPosting ? null : _createPost,
+                        child: _isPosting
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                "Post",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            const SliverToBoxAdapter(child: SizedBox(height: 24.0)),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _handleCreatePost('What\'s on your mind?'),
-        icon: const Icon(Icons.edit),
-        label: const Text('Post'),
-      ),
-    );
-  }
-
-  void _handleCreatePost(String text) {
-    if (text.trim().isEmpty) return;
-    setState(() {
-      _posts.insert(
-        0,
-        _Post(
-          authorName: 'You',
-          authorHandle: '@you',
-          timeAgo: 'now',
-          content: text.trim(),
-          imageAsset: null,
-          likeCount: 0,
-          commentCount: 0,
-          shareCount: 0,
-        ),
-      );
-    });
-  }
-}
-
-class _Composer extends StatelessWidget {
-  const _Composer({required this.onPost});
-
-  final void Function(String text) onPost;
-
-  @override
-  Widget build(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 8.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const CircleAvatar(child: Icon(Icons.person)),
-          const SizedBox(width: 12.0),
+            ),
+          ),
+          // 📱 Posts feed
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 4,
-                  decoration: InputDecoration(
-                    hintText: "What's happening?",
-                    filled: true,
-                    fillColor: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12.0),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12.0,
-                      vertical: 12.0,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8.0),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      onPost(controller.text);
-                    },
-                    icon: const Icon(Icons.send, size: 18),
-                    label: const Text('Post'),
-                  ),
-                ),
-              ],
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection("posts")
+                  .orderBy("timestamp", descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final posts = snapshot.data!.docs;
+                return ListView.builder(
+                  itemCount: posts.length,
+                  itemBuilder: (context, index) {
+                    final doc = posts[index];
+                    final post = doc.data() as Map<String, dynamic>;
+                    final currentUser = authService.value.currentUser;
+                    final likes = List<String>.from(post["likes"] ?? []);
+                    final isLiked =
+                        currentUser != null && likes.contains(currentUser.uid);
+                    final commentController = _getCommentController(doc.id);
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 👤 Author info
+                            Row(
+                              children: [
+                                FutureBuilder<String?>(
+                                  future: getUserPhotoUrl(post["authorId"]),
+                                  builder: (context, snapshot) {
+                                    final url = snapshot.data;
+                                    return CircleAvatar(
+                                      radius: 20,
+                                      backgroundColor: Colors.grey[300],
+                                      backgroundImage: url != null
+                                          ? NetworkImage(url)
+                                          : null,
+                                      child: url == null
+                                          ? const Icon(
+                                              Icons.person,
+                                              size: 20,
+                                              color: Colors.white,
+                                            )
+                                          : null,
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  post["authorName"] ?? "Unknown",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if ((post["caption"] ?? "").toString().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
+                                child: Text(
+                                  post["caption"],
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            // 📸 Media
+                            if (post["mediaType"] == "image")
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  post["mediaUrl"],
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            if (post["mediaType"] == "video")
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: PostVideoPlayer(url: post["mediaUrl"]),
+                              ),
+                            const SizedBox(height: 8),
+                            // ❤️ Like button
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.favorite,
+                                    color: isLiked ? Colors.red : Colors.grey,
+                                  ),
+                                  onPressed: () => _toggleLike(doc),
+                                ),
+                                Text("${likes.length} likes"),
+                              ],
+                            ),
+                            const Divider(),
+                            // 💬 Comments section
+                            StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection("posts")
+                                  .doc(doc.id)
+                                  .collection("comments")
+                                  .orderBy("timestamp", descending: false)
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (!snapshot.hasData) return const SizedBox();
+                                final comments = snapshot.data!.docs;
+                                return Column(
+                                  children: comments.map((c) {
+                                    final data =
+                                        c.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: FutureBuilder<String?>(
+                                        future: getUserPhotoUrl(
+                                          data["authorId"],
+                                        ),
+                                        builder: (context, snapshot) {
+                                          final url = snapshot.data;
+                                          return CircleAvatar(
+                                            radius: 14,
+                                            backgroundColor: Colors.grey[300],
+                                            backgroundImage: url != null
+                                                ? NetworkImage(url)
+                                                : null,
+                                            child: url == null
+                                                ? const Icon(
+                                                    Icons.person,
+                                                    size: 16,
+                                                  )
+                                                : null,
+                                          );
+                                        },
+                                      ),
+                                      title: Text(
+                                        data["authorName"] ?? "Anon",
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      subtitle: Text(data["text"] ?? ""),
+                                    );
+                                  }).toList(),
+                                );
+                              },
+                            ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: commentController,
+                                    decoration: const InputDecoration(
+                                      hintText: "Write a comment...",
+                                      border: InputBorder.none,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.send,
+                                    color: Color(0xFF830A0A),
+                                  ),
+                                  onPressed: () async {
+                                    await _addComment(
+                                      doc.id,
+                                      commentController.text,
+                                    );
+                                    commentController.clear();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],
@@ -191,214 +562,70 @@ class _Composer extends StatelessWidget {
   }
 }
 
-class _PostCard extends StatelessWidget {
-  const _PostCard({
-    required this.post,
-    required this.onLike,
-    required this.onComment,
-    required this.onShare,
-  });
+class PostVideoPlayer extends StatefulWidget {
+  final String url;
+  const PostVideoPlayer({super.key, required this.url});
 
-  final _Post post;
-  final VoidCallback onLike;
-  final VoidCallback onComment;
-  final VoidCallback onShare;
+  @override
+  State<PostVideoPlayer> createState() => _PostVideoPlayerState();
+}
+
+class _PostVideoPlayerState extends State<PostVideoPlayer> {
+  late VideoPlayerController _controller;
+  bool _isInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.network(widget.url)
+      ..initialize().then((_) {
+        setState(() => _isInitialized = true);
+        _controller.setLooping(true);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-      child: Card(
-        elevation: 0,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.0),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                children: <Widget>[
-                  const CircleAvatar(child: Icon(Icons.person)),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          post.authorName,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          '${post.authorHandle} · ${post.timeAgo}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.more_horiz),
-                    onPressed: () {},
-                  ),
-                ],
-              ),
+    if (!_isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return AspectRatio(
+      aspectRatio: _controller.value.aspectRatio,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          VideoPlayer(_controller),
+          Positioned(
+            bottom: 10,
+            left: 0,
+            right: 0,
+            child: VideoProgressIndicator(_controller, allowScrubbing: true),
+          ),
+          IconButton(
+            icon: Icon(
+              _controller.value.isPlaying
+                  ? Icons.pause_circle
+                  : Icons.play_circle,
+              color: Colors.white,
+              size: 48,
             ),
-            if (post.content.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                child: Text(post.content),
-              ),
-            if (post.imageAsset != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12.0),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.asset(
-                    post.imageAsset!,
-                    fit: BoxFit.cover,
-                    errorBuilder:
-                        (
-                          BuildContext context,
-                          Object error,
-                          StackTrace? stackTrace,
-                        ) {
-                          return Container(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerHighest,
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.broken_image),
-                          );
-                        },
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12.0,
-                vertical: 8.0,
-              ),
-              child: Row(
-                children: <Widget>[
-                  _Counter(
-                    icon: Icons.favorite,
-                    count: post.likeCount,
-                    isActive: post.isLiked,
-                  ),
-                  const SizedBox(width: 12.0),
-                  _Counter(
-                    icon: Icons.mode_comment_outlined,
-                    count: post.commentCount,
-                  ),
-                  const SizedBox(width: 12.0),
-                  _Counter(icon: Icons.share_outlined, count: post.shareCount),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Row(
-              children: <Widget>[
-                _ActionButton(
-                  icon: post.isLiked ? Icons.favorite : Icons.favorite_border,
-                  label: 'Like',
-                  isActive: post.isLiked,
-                  onPressed: onLike,
-                ),
-                _ActionButton(
-                  icon: Icons.mode_comment_outlined,
-                  label: 'Comment',
-                  onPressed: onComment,
-                ),
-                _ActionButton(
-                  icon: Icons.share_outlined,
-                  label: 'Share',
-                  onPressed: onShare,
-                ),
-              ],
-            ),
-          ],
-        ),
+            onPressed: () {
+              setState(() {
+                _controller.value.isPlaying
+                    ? _controller.pause()
+                    : _controller.play();
+              });
+            },
+          ),
+        ],
       ),
     );
   }
-}
-
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.isActive = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color foreground = isActive
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).textTheme.bodyMedium?.color ?? Colors.black87;
-    return Expanded(
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, color: foreground),
-        label: Text(label, style: TextStyle(color: foreground)),
-      ),
-    );
-  }
-}
-
-class _Counter extends StatelessWidget {
-  const _Counter({
-    required this.icon,
-    required this.count,
-    this.isActive = false,
-  });
-
-  final IconData icon;
-  final int count;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color color = isActive
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).textTheme.bodySmall?.color ?? Colors.black54;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 4.0),
-        Text('$count', style: TextStyle(color: color)),
-      ],
-    );
-  }
-}
-
-class _Post {
-  _Post({
-    required this.authorName,
-    required this.authorHandle,
-    required this.timeAgo,
-    required this.content,
-    required this.imageAsset,
-    required this.likeCount,
-    required this.commentCount,
-    required this.shareCount,
-  });
-
-  final String authorName;
-  final String authorHandle;
-  final String timeAgo;
-  final String content;
-  final String? imageAsset;
-  int likeCount;
-  final int commentCount;
-  final int shareCount;
-  bool isLiked = false;
 }

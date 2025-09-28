@@ -3,6 +3,7 @@ import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:projectrespawn/Account/Admin/pages/Dashboard.dart';
 import 'package:projectrespawn/Account/Admin/pages/ManagePost.dart';
+import 'package:projectrespawn/Account/Admin/pages/Notification.dart';
 import 'package:projectrespawn/auth/auth_service.dart';
 import 'package:projectrespawn/auth_layout.dart';
 
@@ -16,7 +17,11 @@ class Mainadmin extends StatefulWidget {
 class _MainadminState extends State<Mainadmin> {
   int index = 0;
 
-  final page = <Widget>[Dashboard(), Managepost()];
+  final page = <Widget>[
+    DashboardPage(),
+    ManagePostsPage(),
+    AdminNotifications(),
+  ];
 
   String? displayname;
 
@@ -91,6 +96,7 @@ class _MainadminState extends State<Mainadmin> {
         items: [
           Icon(Icons.dashboard, color: Colors.white),
           Icon(Icons.manage_accounts, color: Colors.white),
+          Icon(Icons.notifications_on_rounded, color: Colors.white),
         ],
       ),
     );

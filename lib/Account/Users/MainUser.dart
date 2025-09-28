@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
-import 'package:projectrespawn/Account/Users/pages/Messages.dart';
 import 'package:projectrespawn/Account/Users/pages/NewsFeeds.dart';
-import 'package:projectrespawn/Account/Users/pages/NotificationUser.dart';
+import 'package:projectrespawn/Account/Users/pages/NotificationPage.dart';
 import 'package:projectrespawn/Account/Users/pages/Profile.dart';
+import 'package:projectrespawn/Account/Users/pages/UserListScreen.dart';
 import 'package:projectrespawn/auth/auth_service.dart';
 import 'package:projectrespawn/auth_layout.dart';
 
@@ -19,9 +19,9 @@ class _MainUserState extends State<MainUser> {
   int index = 0;
 
   final List<Widget> page = [
-    Newsfeeds(),
-    Messages(),
-    NotificationUser(),
+    NewsFeeds(),
+    UsersListScreen(),
+    NotificationPage(),
     Profile(),
   ];
 
@@ -48,6 +48,11 @@ class _MainUserState extends State<MainUser> {
     getname();
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
   Future<void> getname() async {
     final uid = authService.value.currentUser?.uid;
     if (uid != null) {
@@ -69,6 +74,7 @@ class _MainUserState extends State<MainUser> {
     }
 
     return Scaffold(
+      extendBody: true,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         //Step 4: display na nimo

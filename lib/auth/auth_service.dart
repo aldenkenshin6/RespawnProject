@@ -47,4 +47,24 @@ class AuthService {
   Future<void> resetPassword({required String username}) async {
     await firebaseAuth.sendPasswordResetEmail(email: username);
   }
+
+  // Update user's display name
+  Future<void> updateUserName(String displayName) async {
+    final user = firebaseAuth.currentUser;
+    if (user != null) {
+      try {
+        await user.updateDisplayName(displayName);
+        await firestore.collection("users").doc(user.uid).update({
+          "displayname": displayName,
+        });
+      } on FirebaseException catch (e) {
+        debugPrint("Firebase Error: ${e.code}");
+        debugPrint(e.message);
+        rethrow;
+      } catch (e) {
+        debugPrint("Error updating user name: $e");
+        rethrow;
+      }
+    }
+  }
 }
